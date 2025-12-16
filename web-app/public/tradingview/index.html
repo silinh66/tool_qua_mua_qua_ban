@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>TradingView Chart</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        -webkit-overflow-scrolling: auto;
+        overscroll-behavior: none;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+      }
+
+      #app {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: #202127;
+      }
+
+      body.light-theme #app {
+        background: #f4f5f6;
+      }
+
+      .top-toolbar {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        background: #0f1420;
+        padding: 8px 10px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body.light-theme .top-toolbar {
+        background: #f6f7fb;
+      }
+
+      .toolbar-btn {
+        flex: 0 0 auto;
+        padding: 8px 12px;
+        background: #1b2232;
+        color: #cfd6e4;
+        font-size: 13px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      body.light-theme .toolbar-btn {
+        background: #ffffff;
+        color: #333333;
+      }
+
+      .toolbar-btn:active {
+        transform: scale(0.96);
+      }
+
+      .toolbar-btn.active {
+        background: #6d4cff;
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      body.light-theme .toolbar-btn.active {
+        background: #6042ff;
+        color: #ffffff;
+      }
+
+      #chartContainer {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        background: #0b1018;
+        touch-action: none;
+      }
+
+      body.light-theme #chartContainer {
+        background: #ffffff;
+      }
+
+      .bottom-toolbar {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        background: #0f1420;
+        padding: 8px 10px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      body.light-theme .bottom-toolbar {
+        background: #f6f7fb;
+      }
+
+      .tf-btn {
+        flex: 1 1 0;
+        min-width: 0;
+        text-align: center;
+        padding: 10px 0;
+        border-radius: 8px;
+        border: none;
+        background: #1b2232;
+        color: #cfd6e4;
+        font-size: 13px;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      body.light-theme .tf-btn {
+        background: #ffffff;
+        color: #333333;
+      }
+
+      .tf-btn:active {
+        transform: scale(0.96);
+      }
+
+      .tf-btn.active {
+        background: #6d4cff;
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      body.light-theme .tf-btn.active {
+        background: #6042ff;
+        color: #ffffff;
+      }
+
+      .tv-symbol-header,
+      .tv-header,
+      .tv-symbol-info,
+      .tv-header__wrap {
+        display: none !important;
+        height: 0 !important;
+        visibility: hidden !important;
+      }
+    </style>
+    <script src="charting_library/charting_library.standalone.js"></script>
+    <script src="datafeeds/udf/dist/bundle.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      (function () {
+        "use strict";
+
+        const CONFIG = {
+          API_URL: "https://api.dautubenvung.vn",
+          DEFAULT_SYMBOL: "VNINDEX",
+          DEFAULT_INTERVAL: "D",
+          DEFAULT_THEME: "dark",
+          TIMEZONE: "Asia/Ho_Chi_Minh",
+          LOCALE: "vi",
+          PERSIST_KEY_PREFIX: "tv_layout_v2:",
+          AUTO_SAVE_DELAY: 300,
+          REFRESH_DELAY: 200,
+        };
+
+        const state = {
+          widget: null,
+          isChartReady: false,
+          activeResolution: CONFIG.DEFAULT_INTERVAL,
+          currentSymbol: CONFIG.DEFAULT_SYMBOL,
+          currentTheme: CONFIG.DEFAULT_THEME,
+          isRestoring: false,
+          isInitialLoad: true,
+          oscillators: { MACD: false, RSI: false },
+          overlays: {
+            VOL: false,
+            BOLL: false,
+            MA10: false,
+            MA20: false,
+            MA50: false,
+          },
+          studyIds: {
+            osc: { MACD: null, RSI: null },
+            overlays: {
+              VOL: null,
+              BOLL: null,
+              MA10: null,
+              MA20: null,
+              MA50: null,
+            },
+          },
+          maLengths: {}, // Store MA lengths by study ID
+          persistTimer: null,
+          refreshTimer: null,
+          currentPrice: { time: 0, close: 0 },
+        };
+
+        function getInitialSymbol() {
+          return window.__INITIAL_SYMBOL__ || CONFIG.DEFAULT_SYMBOL;
+        }
+
+        function getInitialTheme() {
+          return window.__INITIAL_THEME__ || CONFIG.DEFAULT_THEME;
+        }
+
+        function tvThemeName(mode) {
+          return mode === "dark" ? "Dark" : "Light";
+        }
+
+        function getThemeOverrides(mode) {
+          return mode === "dark"
+            ? {
+                "paneProperties.backgroundType": "solid",
+                "paneProperties.background": "#0b1018",
+                "paneProperties.vertGridProperties.color":
+                  "rgba(255,255,255,0.06)",
+                "paneProperties.horzGridProperties.color":
+                  "rgba(255,255,255,0.06)",
+                "scalesProperties.textColor": "#cfd6e4",
+              }
+            : {
+                "paneProperties.backgroundType": "solid",
+                "paneProperties.background": "#ffffff",
+                "paneProperties.vertGridProperties.color": "rgba(0,0,0,0.06)",
+                "paneProperties.horzGridProperties.color": "rgba(0,0,0,0.06)",
+                "scalesProperties.textColor": "#333333",
+              };
+        }
+
+        function applyTheme(mode) {
+          document.body.classList.toggle("light-theme", mode === "light");
+        }
+
+        function forceTheme(widget, mode) {
+          if (!widget) return;
+          try {
+            widget.changeTheme?.(tvThemeName(mode));
+            widget.applyOverrides(getThemeOverrides(mode));
+          } catch (e) {}
+        }
+
+        function filterLayoutBySymbol(layout, symbol) {
+          if (!layout || !layout.charts) return layout;
+
+          const cleanedLayout = JSON.parse(JSON.stringify(layout));
+          const normalizedCurrent = (symbol || "")
+            .replace(/^HOSE:/, "")
+            .toUpperCase();
+
+          cleanedLayout.charts.forEach((chart) => {
+            if (chart.panes) {
+              chart.panes.forEach((pane) => {
+                if (pane.sources) {
+                  pane.sources = pane.sources.filter((source) => {
+                    if (source.type && source.type.startsWith("LineTool")) {
+                      const sourceSymbol = source.state && source.state.symbol;
+
+                      if (sourceSymbol) {
+                        const normalizedSource = sourceSymbol
+                          .replace(/^HOSE:/, "")
+                          .toUpperCase();
+                        return normalizedSource === normalizedCurrent;
+                      }
+                      return true;
+                    }
+                    return true;
+                  });
+                }
+              });
+            }
+          });
+
+          return cleanedLayout;
+        }
+
+        function layoutKey(symbol) {
+          return (
+            CONFIG.PERSIST_KEY_PREFIX +
+            (symbol || "").replace(/^HOSE:/, "").toUpperCase()
+          );
+        }
+
+        function normalizeLayoutTheme(layout, mode) {
+          if (!layout || typeof layout !== "object") return layout;
+          const isDark = mode === "dark";
+          const bg = isDark ? "#0b1018" : "#ffffff";
+          const grid = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
+          const text = isDark ? "#cfd6e4" : "#333333";
+
+          try {
+            layout.theme = tvThemeName(mode);
+            const charts = Array.isArray(layout.charts) ? layout.charts : [];
+            charts.forEach((ch) => {
+              ch.properties = ch.properties || {};
+              ch.properties.paneProperties = ch.properties.paneProperties || {};
+              ch.properties.scalesProperties =
+                ch.properties.scalesProperties || {};
+              ch.properties.paneProperties.backgroundType = "solid";
+              ch.properties.paneProperties.background = bg;
+              ch.properties.paneProperties.vertGridProperties =
+                ch.properties.paneProperties.vertGridProperties || {};
+              ch.properties.paneProperties.horzGridProperties =
+                ch.properties.paneProperties.horzGridProperties || {};
+              ch.properties.paneProperties.vertGridProperties.color = grid;
+              ch.properties.paneProperties.horzGridProperties.color = grid;
+              ch.properties.scalesProperties.textColor = text;
+            });
+          } catch {}
+
+          return layout;
+        }
+
+        function findBestLayoutKey(symbol) {
+          const normalizedSymbol = (symbol || "")
+            .replace(/^HOSE:/, "")
+            .toUpperCase();
+          const ticker = symbol.includes(":") ? symbol.split(":")[1] : symbol;
+
+          const candidates = [
+            layoutKey(symbol),
+            layoutKey(normalizedSymbol),
+            layoutKey(ticker.toUpperCase()),
+          ];
+
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(CONFIG.PERSIST_KEY_PREFIX)) {
+              const storedSymbol = k
+                .replace(CONFIG.PERSIST_KEY_PREFIX, "")
+                .toUpperCase();
+              if (
+                storedSymbol === normalizedSymbol ||
+                storedSymbol === ticker.toUpperCase()
+              ) {
+                if (!candidates.includes(k)) candidates.unshift(k);
+              }
+            }
+          }
+
+          return candidates.find((k) => !!localStorage.getItem(k)) || null;
+        }
+
+        function loadLayout(widget, symbol) {
+          if (!widget || state.isRestoring) return;
+
+          try {
+            const key = findBestLayoutKey(symbol);
+            console.log("[TV] Loading layout for:", symbol, "key:", key);
+
+            if (!key) {
+              console.log("[TV] No saved layout found");
+              if (state.isInitialLoad) {
+                setTimeout(() => {
+                  if (!state.overlays.VOL) {
+                    console.log("[TV] Adding default VOL indicator");
+                    toggleOverlay("VOL");
+                  }
+                }, 500);
+              }
+              return;
+            }
+
+            const raw = localStorage.getItem(key);
+            if (!raw) return;
+
+            // Load MA lengths
+            const maLengthsRaw = localStorage.getItem(key + ":maLengths");
+            if (maLengthsRaw) {
+              try {
+                state.maLengths = JSON.parse(maLengthsRaw);
+                console.log("[TV] Loaded MA lengths:", state.maLengths);
+              } catch (e) {
+                console.error("[TV] Failed to parse MA lengths:", e);
+                state.maLengths = {};
+              }
+            }
+
+            const data = normalizeLayoutTheme(
+              JSON.parse(raw),
+              state.currentTheme
+            );
+            const filtered = filterLayoutBySymbol(data, symbol);
+
+            state.isRestoring = true;
+            widget.load(filtered);
+
+            console.log("[TV] Layout loaded successfully");
+
+            requestAnimationFrame(() => {
+              state.isRestoring = false;
+              forceTheme(widget, state.currentTheme);
+
+              try {
+                const currentResolution = widget.activeChart().resolution();
+                if (currentResolution) {
+                  state.activeResolution = currentResolution;
+                  updateButtonStates();
+                  console.log("[TV] Resolution synced:", currentResolution);
+                }
+              } catch (e) {
+                console.error("[TV] Failed to sync resolution:", e);
+              }
+
+              setTimeout(() => {
+                refreshIndicatorButtons();
+              }, 300);
+            });
+          } catch (e) {
+            console.error("[TV] loadLayout error:", e);
+            state.isRestoring = false;
+          }
+        }
+
+        function persistLayout() {
+          const widget = state.widget;
+          if (!widget || state.isRestoring) return;
+
+          try {
+            widget.save((obj) => {
+              if (!obj) return;
+
+              const symbol = state.currentSymbol;
+              const normalizedSymbol = (symbol || "")
+                .replace(/^HOSE:/, "")
+                .toUpperCase();
+
+              const keys = new Set([
+                layoutKey(symbol),
+                layoutKey(normalizedSymbol),
+              ]);
+
+              if (symbol.includes(":")) {
+                const ticker = symbol.split(":")[1];
+                keys.add(layoutKey(ticker));
+              }
+
+              let trendlineCount = 0;
+              try {
+                const sources = obj?.charts?.[0]?.panes?.[0]?.sources || [];
+                trendlineCount = sources.filter(
+                  (s) => s.type && s.type.startsWith("LineTool")
+                ).length;
+              } catch {}
+
+              console.log(
+                "[TV] Saving layout - Symbol:",
+                normalizedSymbol,
+                "Trendlines:",
+                trendlineCount
+              );
+
+              for (const k of keys) {
+                try {
+                  localStorage.setItem(k, JSON.stringify(obj));
+                  // Also save MA lengths separately
+                  localStorage.setItem(
+                    k + ":maLengths",
+                    JSON.stringify(state.maLengths)
+                  );
+                } catch (err) {
+                  console.error("[TV] Failed to save to key:", k, err);
+                }
+              }
+
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(
+                  JSON.stringify({
+                    type: "layout",
+                    payload: obj,
+                  })
+                );
+              }
+            });
+          } catch (e) {
+            console.error("[TV] persistLayout error:", e);
+          }
+        }
+
+        function schedulePersist() {
+          if (state.persistTimer) clearTimeout(state.persistTimer);
+          state.persistTimer = setTimeout(
+            persistLayout,
+            CONFIG.AUTO_SAVE_DELAY
+          );
+        }
+
+        function refreshIndicatorButtons() {
+          const widget = state.widget;
+          if (!widget || !state.isChartReady) return;
+
+          try {
+            const chart = widget.activeChart();
+            const studies = chart.getAllStudies();
+
+            let hasMACD = false,
+              hasRSI = false;
+            let hasBOLL = false,
+              hasMA10 = false,
+              hasMA20 = false,
+              hasMA50 = false,
+              hasVOL = false;
+
+            studies.forEach((study) => {
+              const name = study.name || "";
+              const studyId = study.id;
+
+              if (name.includes("MACD")) {
+                hasMACD = true;
+                state.studyIds.osc.MACD = studyId;
+              }
+              if (name.includes("RSI") || name.includes("Relative Strength")) {
+                hasRSI = true;
+                state.studyIds.osc.RSI = studyId;
+              }
+              if (name.includes("Bollinger")) {
+                hasBOLL = true;
+                state.studyIds.overlays.BOLL = studyId;
+              }
+              if (
+                name.includes("Volume") ||
+                name.toLowerCase().includes("volume")
+              ) {
+                hasVOL = true;
+                state.studyIds.overlays.VOL = studyId;
+              }
+              if (name.includes("Moving Average") || name.includes("MA")) {
+                // Check if we stored the length for this study ID
+                const len = state.maLengths[studyId];
+                console.log(
+                  "[TV] MA Study - ID:",
+                  studyId,
+                  "Stored length:",
+                  len
+                );
+
+                if (len === 10) {
+                  hasMA10 = true;
+                  state.studyIds.overlays.MA10 = studyId;
+                }
+                if (len === 20) {
+                  hasMA20 = true;
+                  state.studyIds.overlays.MA20 = studyId;
+                }
+                if (len === 50) {
+                  hasMA50 = true;
+                  state.studyIds.overlays.MA50 = studyId;
+                }
+              }
+            });
+
+            state.oscillators.MACD = hasMACD;
+            state.oscillators.RSI = hasRSI;
+            state.overlays.BOLL = hasBOLL;
+            state.overlays.MA10 = hasMA10;
+            state.overlays.MA20 = hasMA20;
+            state.overlays.MA50 = hasMA50;
+            state.overlays.VOL = hasVOL;
+
+            updateButtonStates();
+          } catch (e) {
+            console.error("[TV] refreshIndicatorButtons error:", e);
+          }
+        }
+
+        function scheduleRefresh() {
+          if (state.refreshTimer) clearTimeout(state.refreshTimer);
+          state.refreshTimer = setTimeout(
+            refreshIndicatorButtons,
+            CONFIG.REFRESH_DELAY
+          );
+        }
+
+        function tryCreateStudy(
+          chart,
+          nameCandidates,
+          forceOverlay,
+          inputVariants
+        ) {
+          for (const name of nameCandidates) {
+            for (const inputs of inputVariants) {
+              try {
+                const result = chart.createStudy(
+                  name,
+                  forceOverlay,
+                  false,
+                  inputs ?? {}
+                );
+                if (result != null) {
+                  if (result instanceof Promise) {
+                    return result;
+                  }
+                  return Promise.resolve(result);
+                }
+              } catch {}
+            }
+          }
+          return null;
+        }
+
+        function toggleOscillator(name) {
+          const widget = state.widget;
+          if (!widget || !state.isChartReady) return;
+
+          const chart = widget.activeChart();
+
+          if (state.oscillators[name]) {
+            const studyId = state.studyIds.osc[name];
+            if (studyId) {
+              try {
+                chart.removeEntity(studyId);
+                console.log("[TV] Removed oscillator:", name, "ID:", studyId);
+              } catch (e) {
+                console.error("[TV] Failed to remove oscillator:", e);
+              }
+            }
+            state.studyIds.osc[name] = null;
+            state.oscillators[name] = false;
+            updateButtonStates();
+            setTimeout(() => {
+              scheduleRefresh();
+              schedulePersist();
+            }, 100);
+            return;
+          }
+
+          let studyPromise = null;
+
+          if (name === "MACD") {
+            studyPromise = tryCreateStudy(
+              chart,
+              ["MACD", "MACD@tv-basicstudies"],
+              false,
+              [undefined, { in_0: 12, in_1: 26, in_2: 9 }]
+            );
+          } else if (name === "RSI") {
+            studyPromise = tryCreateStudy(
+              chart,
+              ["Relative Strength Index", "RSI", "RSI@tv-basicstudies"],
+              false,
+              [undefined, { in_0: 14 }, { length: 14 }, [14]]
+            );
+          }
+
+          if (studyPromise) {
+            studyPromise
+              .then((id) => {
+                if (id != null) {
+                  state.studyIds.osc[name] = id;
+                  state.oscillators[name] = true;
+                  console.log("[TV] Added oscillator:", name, "ID:", id);
+                  updateButtonStates();
+                  setTimeout(() => {
+                    scheduleRefresh();
+                    schedulePersist();
+                  }, 100);
+                } else {
+                  console.error("[TV] Failed to create oscillator:", name);
+                }
+              })
+              .catch((e) => {
+                console.error("[TV] Failed to add oscillator:", name, e);
+              });
+          }
+        }
+
+        function toggleOverlay(key) {
+          const widget = state.widget;
+          if (!widget || !state.isChartReady) return;
+
+          const chart = widget.activeChart();
+
+          if (state.overlays[key]) {
+            const studyId = state.studyIds.overlays[key];
+            if (studyId) {
+              try {
+                chart.removeEntity(studyId);
+                console.log("[TV] Removed overlay:", key, "ID:", studyId);
+
+                // Clean up stored MA length
+                if (state.maLengths[studyId]) {
+                  delete state.maLengths[studyId];
+                }
+              } catch (e) {
+                console.error("[TV] Failed to remove overlay:", e);
+              }
+            }
+            state.studyIds.overlays[key] = null;
+            state.overlays[key] = false;
+            updateButtonStates();
+            setTimeout(() => {
+              scheduleRefresh();
+              schedulePersist();
+            }, 100);
+            return;
+          }
+
+          let studyPromise = null;
+
+          if (key === "BOLL") {
+            studyPromise = tryCreateStudy(
+              chart,
+              ["Bollinger Bands", "Bollinger Bands@tv-basicstudies"],
+              true,
+              [{ in_0: 20, in_1: 2 }, { length: 20, mult: 2 }, [20, 2]]
+            );
+          } else if (key === "VOL") {
+            studyPromise = tryCreateStudy(
+              chart,
+              ["Volume", "Volume@tv-basicstudies"],
+              false,
+              [undefined]
+            );
+          } else {
+            const len = key === "MA10" ? 10 : key === "MA20" ? 20 : 50;
+            studyPromise = tryCreateStudy(
+              chart,
+              ["Moving Average", "MASimple@tv-basicstudies"],
+              true,
+              [{ length: len }, { in_0: len }, [len]]
+            );
+          }
+
+          if (studyPromise) {
+            studyPromise
+              .then((id) => {
+                if (id != null) {
+                  state.studyIds.overlays[key] = id;
+                  state.overlays[key] = true;
+
+                  // Store the length for MA studies
+                  if (key === "MA10" || key === "MA20" || key === "MA50") {
+                    const len = key === "MA10" ? 10 : key === "MA20" ? 20 : 50;
+                    state.maLengths[id] = len;
+                    console.log("[TV] Stored MA length:", id, "->", len);
+                  }
+
+                  console.log("[TV] Added overlay:", key, "ID:", id);
+                  updateButtonStates();
+                  setTimeout(() => {
+                    scheduleRefresh();
+                    schedulePersist();
+                  }, 100);
+                } else {
+                  console.error("[TV] Failed to create overlay:", key);
+                }
+              })
+              .catch((e) => {
+                console.error("[TV] Failed to add overlay:", key, e);
+              });
+          }
+        }
+
+        function renderUI() {
+          const app = document.getElementById("app");
+          app.innerHTML = `
+          <div class="top-toolbar">
+            <button class="toolbar-btn" data-action="trendline">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <circle cx="6" cy="8" r="2" stroke="currentColor" stroke-width="2"/>
+                <circle cx="18" cy="16" r="2" stroke="currentColor" stroke-width="2"/>
+                <path d="M7.5 9.5 L16.5 14.5" stroke="currentColor" stroke-width="2"/>
+              </svg>
+            </button>
+            <button class="toolbar-btn" data-indicator="VOL">VOL</button>
+            <button class="toolbar-btn" data-indicator="MACD">MACD</button>
+            <button class="toolbar-btn" data-indicator="RSI">RSI</button>
+            <button class="toolbar-btn" data-indicator="BOLL">BOLL</button>
+            <button class="toolbar-btn" data-indicator="MA10">MA10</button>
+            <button class="toolbar-btn" data-indicator="MA20">MA20</button>
+            <button class="toolbar-btn" data-indicator="MA50">MA50</button>
+          </div>
+          <div id="chartContainer"></div>
+          <div class="bottom-toolbar">
+            <button class="tf-btn" data-resolution="1">1P</button>
+            <button class="tf-btn" data-resolution="5">5P</button>
+            <button class="tf-btn" data-resolution="15">15P</button>
+            <button class="tf-btn" data-resolution="30">30P</button>
+            <button class="tf-btn" data-resolution="60">1H</button>
+            <button class="tf-btn" data-resolution="D">1D</button>
+            <button class="tf-btn" data-resolution="1W">1W</button>
+            <button class="tf-btn" data-resolution="1M">1M</button>
+          </div>
+        `;
+
+          attachEventListeners();
+        }
+
+        function attachEventListeners() {
+          document
+            .querySelector('[data-action="trendline"]')
+            ?.addEventListener("click", () => {
+              if (state.widget && state.isChartReady) {
+                try {
+                  state.widget.selectLineTool?.("trend_line");
+                } catch (e) {}
+              }
+            });
+
+          document.querySelectorAll("[data-indicator]").forEach((btn) => {
+            btn.addEventListener("click", (e) => {
+              const indicator = e.target.dataset.indicator;
+              if (["MACD", "RSI"].includes(indicator)) {
+                toggleOscillator(indicator);
+              } else {
+                toggleOverlay(indicator);
+              }
+            });
+          });
+
+          document.querySelectorAll("[data-resolution]").forEach((btn) => {
+            btn.addEventListener("click", (e) => {
+              const resolution = e.target.dataset.resolution;
+              changeResolution(resolution);
+            });
+          });
+        }
+
+        function updateButtonStates() {
+          ["MACD", "RSI"].forEach((name) => {
+            const btn = document.querySelector(`[data-indicator="${name}"]`);
+            if (btn) btn.classList.toggle("active", state.oscillators[name]);
+          });
+
+          ["VOL", "BOLL", "MA10", "MA20", "MA50"].forEach((name) => {
+            const btn = document.querySelector(`[data-indicator="${name}"]`);
+            if (btn) btn.classList.toggle("active", state.overlays[name]);
+          });
+
+          document.querySelectorAll("[data-resolution]").forEach((btn) => {
+            btn.classList.toggle(
+              "active",
+              btn.dataset.resolution === state.activeResolution
+            );
+          });
+        }
+
+        function changeResolution(resolution) {
+          if (!state.widget || !state.isChartReady) return;
+
+          state.widget.activeChart().setResolution(resolution, () => {
+            state.activeResolution = resolution;
+            updateButtonStates();
+            schedulePersist();
+          });
+        }
+
+        function changeSymbol(symbol) {
+          if (!state.widget || !state.isChartReady) return;
+
+          console.log("[TV] Changing symbol to:", symbol);
+
+          state.widget.activeChart().setSymbol(symbol, () => {
+            state.currentSymbol = symbol;
+            console.log("[TV] Symbol changed, loading layout");
+            loadLayout(state.widget, symbol);
+            schedulePersist();
+          });
+        }
+
+        function initWidget() {
+          const initialSymbol = getInitialSymbol();
+          const initialTheme = getInitialTheme();
+
+          state.currentSymbol = initialSymbol;
+          state.currentTheme = initialTheme;
+
+          console.log(
+            "[TV] Initializing widget - Symbol:",
+            initialSymbol,
+            "Theme:",
+            initialTheme
+          );
+
+          applyTheme(initialTheme);
+          renderUI();
+
+          const widgetOptions = {
+            symbol: initialSymbol,
+            datafeed: new Datafeeds.UDFCompatibleDatafeed(CONFIG.API_URL, 5000),
+            interval: CONFIG.DEFAULT_INTERVAL,
+            container: document.getElementById("chartContainer"),
+            library_path: "charting_library/",
+            locale: CONFIG.LOCALE,
+            timezone: CONFIG.TIMEZONE,
+            client_id: "tradingview.com",
+            user_id: "public_user_id",
+            fullscreen: false,
+            autosize: true,
+            theme: tvThemeName(initialTheme),
+            disabled_features: [
+              "header_widget",
+              "timeframes_toolbar",
+              "left_toolbar",
+              "legend_context_menu",
+              "main_series_scale_menu",
+              "pane_context_menu",
+              "volume_force_overlay",
+              "symbol_info",
+              "display_market_status",
+              "header_compare",
+              "header_indicators",
+              "header_settings",
+              "header_resolutions",
+              "header_interval_dialog_button",
+              "header_undo_redo",
+              "header_screenshot",
+              "header_fullscreen_button",
+            ],
+            overrides: {
+              "paneProperties.legendProperties.showLegend": false,
+              "paneProperties.legendProperties.showSeriesTitle": false,
+              "paneProperties.legendProperties.showSeriesOHLC": false,
+              "symbolWatermarkProperties.transparency": 100,
+            },
+            allow_symbol_change: true,
+            debug: false,
+            loading_screen: {
+              backgroundColor: initialTheme === "dark" ? "#0b1018" : "#ffffff",
+            },
+          };
+
+          try {
+            const widget = new TradingView.widget(widgetOptions);
+            state.widget = widget;
+
+            widget.onChartReady(() => {
+              state.isChartReady = true;
+              console.log("[TV] Chart ready");
+
+              try {
+                const initRes = widget.activeChart().resolution();
+                state.activeResolution = initRes || CONFIG.DEFAULT_INTERVAL;
+              } catch {
+                state.activeResolution = CONFIG.DEFAULT_INTERVAL;
+              }
+
+              updateButtonStates();
+              forceTheme(widget, state.currentTheme);
+
+              requestAnimationFrame(() => {
+                loadLayout(widget, initialSymbol);
+                state.isInitialLoad = false;
+              });
+
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(
+                  JSON.stringify({
+                    type: "chartReady",
+                    payload: { symbol: initialSymbol, theme: initialTheme },
+                  })
+                );
+              }
+
+              widget.subscribe("onTick", (event) => {
+                state.currentPrice = {
+                  time: event.time,
+                  close: event.close,
+                };
+
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage(
+                    JSON.stringify({
+                      type: "onTick",
+                      payload: {
+                        time: event.time,
+                        close: event.close,
+                        open: event.open,
+                        high: event.high,
+                        low: event.low,
+                        volume: event.volume,
+                      },
+                    })
+                  );
+                }
+              });
+
+              if (typeof widget.onAutoSaveNeeded === "function") {
+                widget.onAutoSaveNeeded(() => {
+                  scheduleRefresh();
+                  schedulePersist();
+                });
+              }
+
+              widget.subscribe("undo_redo_state_changed", () => {
+                scheduleRefresh();
+                schedulePersist();
+              });
+
+              if (typeof widget.subscribe === "function") {
+                widget.subscribe("study", () => {
+                  scheduleRefresh();
+                  schedulePersist();
+                });
+              }
+
+              const handleMessage = (event) => {
+                try {
+                  const data =
+                    typeof event.data === "string"
+                      ? JSON.parse(event.data)
+                      : event.data;
+
+                  if (data?.type === "applyLayout" && data?.payload) {
+                    console.log("[TV] Applying layout from RN");
+                    state.isRestoring = true;
+                    const patched = normalizeLayoutTheme(
+                      data.payload,
+                      state.currentTheme
+                    );
+                    const filtered = filterLayoutBySymbol(
+                      patched,
+                      state.currentSymbol
+                    );
+                    widget.load(filtered);
+                    requestAnimationFrame(() => {
+                      state.isRestoring = false;
+                      forceTheme(widget, state.currentTheme);
+                    });
+                  } else if (data?.type === "requestLayout") {
+                    console.log("[TV] Layout requested from RN");
+                    persistLayout();
+                  } else if (data?.type === "changeSymbol" && data?.payload) {
+                    changeSymbol(data.payload);
+                  } else if (
+                    data?.type === "changeResolution" &&
+                    data?.payload
+                  ) {
+                    changeResolution(data.payload);
+                  } else if (data?.type === "changeTheme" && data?.payload) {
+                    const newTheme = data.payload;
+                    state.currentTheme = newTheme;
+                    applyTheme(newTheme);
+                    forceTheme(widget, newTheme);
+                  }
+                } catch (e) {
+                  console.error("[TV] Message handler error:", e);
+                }
+              };
+
+              window.addEventListener("message", handleMessage);
+              document.addEventListener("message", handleMessage);
+
+              const container = document.getElementById("chartContainer");
+
+              const quickSave = () => {
+                if (state.persistTimer) clearTimeout(state.persistTimer);
+                persistLayout();
+                scheduleRefresh();
+              };
+
+              const bounce = () => {
+                scheduleRefresh();
+                schedulePersist();
+              };
+
+              container.addEventListener("click", bounce, true);
+              container.addEventListener("pointerup", quickSave, true);
+              container.addEventListener("touchend", quickSave, true);
+
+              const observer = new MutationObserver(bounce);
+              observer.observe(container, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+              });
+
+              widget.__cleanup = () => {
+                container.removeEventListener("click", bounce, true);
+                container.removeEventListener("pointerup", quickSave, true);
+                container.removeEventListener("touchend", quickSave, true);
+                observer.disconnect();
+                window.removeEventListener("message", handleMessage);
+                document.removeEventListener("message", handleMessage);
+              };
+            });
+          } catch (error) {
+            console.error("[TV] Widget initialization failed:", error);
+          }
+        }
+
+        window.TradingViewAPI = {
+          getState: () => ({
+            symbol: state.currentSymbol,
+            resolution: state.activeResolution,
+            theme: state.currentTheme,
+            isReady: state.isChartReady,
+            oscillators: { ...state.oscillators },
+            overlays: { ...state.overlays },
+            currentPrice: { ...state.currentPrice },
+          }),
+
+          setSymbol: (symbol) => {
+            if (symbol) changeSymbol(symbol);
+          },
+
+          setResolution: (resolution) => {
+            if (resolution) changeResolution(resolution);
+          },
+
+          setTheme: (theme) => {
+            if (theme === "dark" || theme === "light") {
+              state.currentTheme = theme;
+              applyTheme(theme);
+              if (state.widget && state.isChartReady) {
+                forceTheme(state.widget, theme);
+              }
+            }
+          },
+
+          addIndicator: (name) => {
+            if (["MACD", "RSI"].includes(name)) {
+              toggleOscillator(name);
+            } else if (["VOL", "BOLL", "MA10", "MA20", "MA50"].includes(name)) {
+              toggleOverlay(name);
+            }
+          },
+
+          selectTrendline: () => {
+            if (state.widget && state.isChartReady) {
+              try {
+                state.widget.selectLineTool?.("trend_line");
+              } catch (e) {}
+            }
+          },
+
+          saveLayout: () => {
+            persistLayout();
+          },
+
+          loadLayout: (layoutObj) => {
+            if (state.widget && state.isChartReady && layoutObj) {
+              state.isRestoring = true;
+              const patched = normalizeLayoutTheme(
+                layoutObj,
+                state.currentTheme
+              );
+              const filtered = filterLayoutBySymbol(
+                patched,
+                state.currentSymbol
+              );
+              state.widget.load(filtered);
+              requestAnimationFrame(() => {
+                state.isRestoring = false;
+                forceTheme(state.widget, state.currentTheme);
+              });
+            }
+          },
+
+          getWidget: () => state.widget,
+          getChart: () => state.widget?.activeChart?.(),
+          getCurrentPrice: () => state.currentPrice,
+        };
+
+        function checkReady() {
+          if (
+            typeof TradingView !== "undefined" &&
+            typeof Datafeeds !== "undefined" &&
+            document.readyState === "complete"
+          ) {
+            initWidget();
+          } else {
+            setTimeout(checkReady, 50);
+          }
+        }
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", checkReady);
+        } else {
+          checkReady();
+        }
+
+        window.addEventListener("beforeunload", () => {
+          if (state.widget) {
+            try {
+              state.widget.__cleanup?.();
+              state.widget.remove();
+            } catch {}
+          }
+          if (state.persistTimer) clearTimeout(state.persistTimer);
+          if (state.refreshTimer) clearTimeout(state.refreshTimer);
+        });
+      })();
+    </script>
+  </body>
+</html>

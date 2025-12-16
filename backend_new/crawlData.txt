@@ -1,0 +1,46 @@
+Tổng cục thống kê: https://www.nso.gov.vn/bao-cao-tinh-hinh-kinh-te-xa-hoi-hang-thang/
+
+
+Backend mới: sửa tháng + năm -> chạy file crawlModules.js
+IIP + PMI: update thủ công
+
+
++ GDP
+	- Chạy file crawlGDP.js, có 2 hàm crawlGDPHienHanh và crawlGDPThuc, sửa curMonthNumber và curYear là được, xong chạy lần lượt từng hàm. Chú ý xem cột chứa dữ liệu là cột 2 hay 3 thì sửa lai
+	  quy_truoc: row[3],
+          quy_nay: row[3] tương ứng
+	
++ VĐT NSNN
++ Tổng mức bán lẻ
+	- Chạy file crawlTongMucBanLe.js, sửa curMonth và curYear
++ Xuất nhập khẩu
+	- Chạy file crawlXuatNhapKhau, sửa curMonthNumber và curYear, có 2 hàm thì chạy hàm crawlXuatKhau trước rồi mới chạy crawlNhapKhau
++ Vốn đầu tư theo tỉnh thành
+	- Chạy file crawlVonDauTuTheoTinhThanh, sửa j là tháng và curYear là năm
++ CPI
+	- Chạy file crawlCPI.js, sửa j là tháng và curYear là năm
++ FDI: 
+https://www.mpi.gov.vn/portal/pages/solieudtnn.aspx?nam=2024&thang=5
+
++ IIP
+https://tradingeconomics.com/vietnam/industrial-production
+
++ PMI
+https://tradingeconomics.com/vietnam/manufacturing-pmi
+
+Tin tức và sự kiện: testNews.js ( chạy hàng ngày)
+  FDI: https://www.mpi.gov.vn/portal/pages/solieudtnn.aspx?nam=2024&thang=5
+  https://www.mpi.gov.vn/portal/Pages/2024-5-27/Tinh-hinh-thu-hut-dau-tu-nuoc-ngoai-tai-Viet-Nam-vqnaul1.aspx
+  Xuất nhập khẩu: crawlXuatNhapKhau.js
+  Tổng mức bán lẻ: crawlTongMucBanLe.js
+  Đầu tư ngân sách nhà nước: crawlDauTuNganSachNhaNuoc.js
+  GDP: crawlGDP.js
+  PMI: https://tradingeconomics.com/vietnam/manufacturing-pmi
+  IIP: https://tradingeconomics.com/vietnam/industrial-production
+  Tab tài chính màn phân tích: getThongKeGiaoDich.js (chạy hàng ngày)
+  Data báo cáo tài chính: getFinancialRatio.js (chạy hàng tháng/quý) - ngày 28 hàng tháng
+  Data báo cáo phân tích: getBaoCaoPhanTich.js (chạy hàng tuần)
+
+Cập nhật biểu đồ bctc theo quý:
+chạy các file node pupeteerScript/getCanDoiKeToan.js, getLuuChuyenTienTe.js, getKetQuaKinhDoanh.js, getFinancialRatio
+Khi chạy thì ấn sang tab tương ứng(bên trong tab Bác cáo tài chính có: getCanDoiKeToan là tab Cân đối kế toán, getLuuChuyenTienTe là tab Lưu chuyển tiền tệ, getKetQuaKinhDoanh là tab Kết quả kinh doanh, getFinancialRatio là tab chỉ số tài chính )
