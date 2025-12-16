@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import './index.css';
-import { AI_RSI_Indicator, AI_MFI_Indicator } from './AIIndicator';
+import {
+  AI_RSI_Indicator,
+  AI_MFI_Indicator,
+  AI_Stoch_Indicator,
+  AI_CCI_Indicator,
+  AI_BB_Indicator,
+  AI_WilliamsR_Indicator,
+  AI_MOM_Indicator,
+  AI_MACD_Indicator
+} from './AIIndicator';
 
 const CONFIG = {
   // API_URL: "https://api.dautubenvung.vn",
@@ -361,28 +370,41 @@ function App() {
     if (!widget) return;
     const chart = widget.activeChart();
 
-    // AI Special Case: Toggle both RSI and MFI
+    // AI Special Case: Toggle all AI indicators
     if (name === "AI") {
-      const rsiId = stateRef.current.studyIds.osc["AI_RSI"];
-      const mfiId = stateRef.current.studyIds.osc["AI_MFI"];
+      const aiKeys = ["AI_RSI", "AI_MFI", "AI_Stoch", "AI_CCI", "AI_BB", "AI_WilliamsR", "AI_MOM", "AI_MACD"];
+      const hasAny = aiKeys.some(key => stateRef.current.studyIds.osc[key]);
 
-      if (rsiId || mfiId) {
-        // Remove both
-        if (rsiId) { try { chart.removeEntity(rsiId); } catch (e) { } }
-        if (mfiId) { try { chart.removeEntity(mfiId); } catch (e) { } }
-        stateRef.current.studyIds.osc["AI_RSI"] = null;
-        stateRef.current.studyIds.osc["AI_MFI"] = null;
+      if (hasAny) {
+        // Remove all AI indicators
+        for (const key of aiKeys) {
+          const id = stateRef.current.studyIds.osc[key];
+          if (id) { try { chart.removeEntity(id); } catch (e) { } }
+          stateRef.current.studyIds.osc[key] = null;
+        }
         setOscillators(prev => ({ ...prev, AI: false }));
       } else {
-        // Add both
-        console.log("[TV] Creating AI RSI & MFI...");
-        const id1 = await tryCreateStudy(chart, ["CustomAI RSI", "CustomAI_RSI@tv-basicstudies-1"], false, [14]);
-        const id2 = await tryCreateStudy(chart, ["CustomAI MFI", "CustomAI_MFI@tv-basicstudies-1"], false, [14]);
+        // Add all AI indicators
+        console.log("[TV] Creating all AI indicators...");
+        const indicators = [
+          { key: "AI_RSI", names: ["CustomAI RSI", "CustomAI_RSI@tv-basicstudies-1"], inputs: [14] },
+          { key: "AI_MFI", names: ["CustomAI MFI", "CustomAI_MFI@tv-basicstudies-1"], inputs: [14] },
+          { key: "AI_Stoch", names: ["CustomAI Stochastic", "CustomAI_Stoch@tv-basicstudies-1"], inputs: [14, 3] },
+          { key: "AI_CCI", names: ["CustomAI CCI", "CustomAI_CCI@tv-basicstudies-1"], inputs: [20] },
+          { key: "AI_BB", names: ["CustomAI Bollinger %B", "CustomAI_BB@tv-basicstudies-1"], inputs: [20, 2] },
+          { key: "AI_WilliamsR", names: ["CustomAI Williams %R", "CustomAI_WilliamsR@tv-basicstudies-1"], inputs: [14] },
+          { key: "AI_MOM", names: ["CustomAI Momentum", "CustomAI_MOM@tv-basicstudies-1"], inputs: [10] },
+          { key: "AI_MACD", names: ["CustomAI MACD", "CustomAI_MACD@tv-basicstudies-1"], inputs: [12, 26, 9] },
+        ];
 
-        stateRef.current.studyIds.osc["AI_RSI"] = id1;
-        stateRef.current.studyIds.osc["AI_MFI"] = id2;
+        let anyCreated = false;
+        for (const ind of indicators) {
+          const id = await tryCreateStudy(chart, ind.names, false, ind.inputs);
+          stateRef.current.studyIds.osc[ind.key] = id;
+          if (id) anyCreated = true;
+        }
 
-        if (id1 || id2) {
+        if (anyCreated) {
           setOscillators(prev => ({ ...prev, AI: true }));
         }
       }
@@ -520,8 +542,17 @@ function App() {
         custom_indicators_getter: function (PineJS) {
           console.log("[TV] custom_indicators_getter called.");
           if (PineJS) window.PineJS = PineJS;
-          // Return both indicators
-          return Promise.resolve([AI_RSI_Indicator, AI_MFI_Indicator]);
+          // Return all AI indicators
+          return Promise.resolve([
+            AI_RSI_Indicator,
+            AI_MFI_Indicator,
+            AI_Stoch_Indicator,
+            AI_CCI_Indicator,
+            AI_BB_Indicator,
+            AI_WilliamsR_Indicator,
+            AI_MOM_Indicator,
+            AI_MACD_Indicator
+          ]);
         },
       };
 
