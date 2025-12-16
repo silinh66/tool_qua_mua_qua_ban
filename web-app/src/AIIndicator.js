@@ -267,8 +267,7 @@ export const AI_MFI_Indicator = {
 };
 
 // --- Stochastic Oscillator Indicator ---
-// %K = (Close - Lowest Low) / (Highest High - Lowest Low) * 100
-// Overbought > 80, Oversold < 20
+// %K and %D lines like original Stochastic
 export const AI_Stoch_Indicator = {
     name: "CustomAI_Stoch",
     metainfo: {
@@ -283,22 +282,27 @@ export const AI_Stoch_Indicator = {
         format: { type: "price", precision: 2 },
         defaults: {
             styles: {
-                plot_stoch_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#00FF00", title: "Stoch Buy" },
-                plot_stoch_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#FF0000", title: "Stoch Sell" },
+                plot_k: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "%K" },
+                plot_d: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF6D00", title: "%D" },
             },
-            inputs: { in_k_len: 14, in_d_len: 3 }
+            bands: [
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 20 },
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 80 },
+            ],
+            inputs: { in_k_len: 14, in_k_smooth: 1, in_d_len: 3 }
         },
         plots: [
-            { id: "plot_stoch_buy", type: "line" },
-            { id: "plot_stoch_sell", type: "line" },
+            { id: "plot_k", type: "line" },
+            { id: "plot_d", type: "line" },
         ],
         styles: {
-            plot_stoch_buy: { title: "Stoch Buy", histogramBase: 0 },
-            plot_stoch_sell: { title: "Stoch Sell", histogramBase: 0 },
+            plot_k: { title: "%K", histogramBase: 0 },
+            plot_d: { title: "%D", histogramBase: 0 },
         },
         inputs: [
             { id: "in_k_len", name: "%K Length", defval: 14, type: "integer", min: 1, max: 100 },
-            { id: "in_d_len", name: "%D Length", defval: 3, type: "integer", min: 1, max: 100 },
+            { id: "in_k_smooth", name: "%K Smoothing", defval: 1, type: "integer", min: 1, max: 100 },
+            { id: "in_d_len", name: "%D Smoothing", defval: 3, type: "integer", min: 1, max: 100 },
         ],
     },
     constructor: function () {
@@ -307,31 +311,40 @@ export const AI_Stoch_Indicator = {
             this._input = inputCallback;
             try {
                 const kLen = this._input(0) || 14;
+                const kSmooth = this._input(1) || 1;
+                const dLen = this._input(2) || 3;
                 const close = this._context.new_var(this._context.symbol.close);
                 const high = this._context.new_var(this._context.symbol.high);
                 const low = this._context.new_var(this._context.symbol.low);
 
-                // Find highest high and lowest low over kLen periods
-                let highestHigh = -Infinity;
-                let lowestLow = Infinity;
-                for (let i = 0; i < kLen; i++) {
-                    const h = high.get(i);
-                    const l = low.get(i);
-                    if (isNaN(h) || isNaN(l)) return [NaN, NaN];
-                    if (h > highestHigh) highestHigh = h;
-                    if (l < lowestLow) lowestLow = l;
+                // Calculate raw %K values for smoothing
+                const rawKValues = [];
+                for (let offset = 0; offset < kSmooth + dLen; offset++) {
+                    let highestHigh = -Infinity;
+                    let lowestLow = Infinity;
+                    for (let i = 0; i < kLen; i++) {
+                        const h = high.get(offset + i);
+                        const l = low.get(offset + i);
+                        if (isNaN(h) || isNaN(l)) return [NaN, NaN];
+                        if (h > highestHigh) highestHigh = h;
+                        if (l < lowestLow) lowestLow = l;
+                    }
+                    const c = close.get(offset);
+                    const range = highestHigh - lowestLow;
+                    rawKValues.push(range === 0 ? 50 : ((c - lowestLow) / range) * 100);
                 }
 
-                const c = close.get(0);
-                if (isNaN(c)) return [NaN, NaN];
+                // %K = SMA of raw %K
+                const stochK = rawKValues.slice(0, kSmooth).reduce((a, b) => a + b, 0) / kSmooth;
 
-                const range = highestHigh - lowestLow;
-                const stochK = range === 0 ? 50 : ((c - lowestLow) / range) * 100;
+                // %D = SMA of %K values
+                const kValuesForD = [];
+                for (let i = 0; i < dLen; i++) {
+                    kValuesForD.push(rawKValues.slice(i, i + kSmooth).reduce((a, b) => a + b, 0) / kSmooth);
+                }
+                const stochD = kValuesForD.reduce((a, b) => a + b, 0) / dLen;
 
-                const isBuy = stochK < 20;
-                const isSell = stochK > 80;
-
-                return [isBuy ? 10 : NaN, isSell ? 10 : NaN];
+                return [stochK, stochD];
             } catch (e) {
                 return [NaN, NaN];
             }
@@ -340,8 +353,7 @@ export const AI_Stoch_Indicator = {
 };
 
 // --- CCI - Commodity Channel Index ---
-// CCI = (TP - SMA(TP)) / (0.015 * Mean Deviation)
-// Overbought > 100, Oversold < -100
+// Shows CCI line and SMA of CCI
 export const AI_CCI_Indicator = {
     name: "CustomAI_CCI",
     metainfo: {
@@ -356,21 +368,26 @@ export const AI_CCI_Indicator = {
         format: { type: "price", precision: 2 },
         defaults: {
             styles: {
-                plot_cci_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#00FF00", title: "CCI Buy" },
-                plot_cci_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#FF0000", title: "CCI Sell" },
+                plot_cci: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "CCI" },
+                plot_cci_sma: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF6D00", title: "SMA" },
             },
-            inputs: { in_cci_len: 20 }
+            bands: [
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -100 },
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 100 },
+            ],
+            inputs: { in_cci_len: 20, in_sma_len: 20 }
         },
         plots: [
-            { id: "plot_cci_buy", type: "line" },
-            { id: "plot_cci_sell", type: "line" },
+            { id: "plot_cci", type: "line" },
+            { id: "plot_cci_sma", type: "line" },
         ],
         styles: {
-            plot_cci_buy: { title: "CCI Buy", histogramBase: 0 },
-            plot_cci_sell: { title: "CCI Sell", histogramBase: 0 },
+            plot_cci: { title: "CCI", histogramBase: 0 },
+            plot_cci_sma: { title: "SMA", histogramBase: 0 },
         },
         inputs: [
             { id: "in_cci_len", name: "CCI Length", defval: 20, type: "integer", min: 1, max: 100 },
+            { id: "in_sma_len", name: "SMA Length", defval: 20, type: "integer", min: 1, max: 100 },
         ],
     },
     constructor: function () {
@@ -379,29 +396,32 @@ export const AI_CCI_Indicator = {
             this._input = inputCallback;
             try {
                 const len = this._input(0) || 20;
+                const smaLen = this._input(1) || 20;
                 const close = this._context.new_var(this._context.symbol.close);
                 const high = this._context.new_var(this._context.symbol.high);
                 const low = this._context.new_var(this._context.symbol.low);
 
-                // Calculate Typical Price array and SMA
-                const tpArr = [];
-                for (let i = 0; i < len; i++) {
-                    const h = high.get(i);
-                    const l = low.get(i);
-                    const c = close.get(i);
-                    if (isNaN(h) || isNaN(l) || isNaN(c)) return [NaN, NaN];
-                    tpArr.push((h + l + c) / 3);
+                // Calculate CCI values for SMA
+                const cciValues = [];
+                for (let offset = 0; offset < smaLen; offset++) {
+                    const tpArr = [];
+                    for (let i = 0; i < len; i++) {
+                        const h = high.get(offset + i);
+                        const l = low.get(offset + i);
+                        const c = close.get(offset + i);
+                        if (isNaN(h) || isNaN(l) || isNaN(c)) return [NaN, NaN];
+                        tpArr.push((h + l + c) / 3);
+                    }
+                    const tpSMA = tpArr.reduce((a, b) => a + b, 0) / len;
+                    const meanDev = tpArr.reduce((acc, tp) => acc + Math.abs(tp - tpSMA), 0) / len;
+                    const cci = meanDev === 0 ? 0 : (tpArr[0] - tpSMA) / (0.015 * meanDev);
+                    cciValues.push(cci);
                 }
 
-                const tpSMA = tpArr.reduce((a, b) => a + b, 0) / len;
-                const meanDev = tpArr.reduce((acc, tp) => acc + Math.abs(tp - tpSMA), 0) / len;
+                const currentCCI = cciValues[0];
+                const cciSMA = cciValues.reduce((a, b) => a + b, 0) / smaLen;
 
-                const cci = meanDev === 0 ? 0 : (tpArr[0] - tpSMA) / (0.015 * meanDev);
-
-                const isBuy = cci < -100;
-                const isSell = cci > 100;
-
-                return [isBuy ? 10 : NaN, isSell ? 10 : NaN];
+                return [currentCCI, cciSMA];
             } catch (e) {
                 return [NaN, NaN];
             }
@@ -410,8 +430,7 @@ export const AI_CCI_Indicator = {
 };
 
 // --- Bollinger Bands %B Indicator ---
-// %B = (Close - Lower Band) / (Upper Band - Lower Band)
-// Overbought > 1, Oversold < 0
+// Shows %B value (0 = lower band, 1 = upper band)
 export const AI_BB_Indicator = {
     name: "CustomAI_BB",
     metainfo: {
@@ -419,28 +438,29 @@ export const AI_BB_Indicator = {
         id: "CustomAI_BB@tv-basicstudies-1",
         name: "CustomAI Bollinger %B",
         description: "CustomAI Bollinger Bands %B",
-        shortDescription: "AI BB",
+        shortDescription: "AI %B",
         is_hidden_study: false,
         is_price_study: false,
         isCustomIndicator: true,
-        format: { type: "price", precision: 2 },
+        format: { type: "price", precision: 4 },
         defaults: {
             styles: {
-                plot_bb_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#00FF00", title: "BB Buy" },
-                plot_bb_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#FF0000", title: "BB Sell" },
+                plot_bb: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#7E57C2", title: "%B" },
             },
+            bands: [
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 0 },
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 1 },
+            ],
             inputs: { in_bb_len: 20, in_bb_mult: 2 }
         },
         plots: [
-            { id: "plot_bb_buy", type: "line" },
-            { id: "plot_bb_sell", type: "line" },
+            { id: "plot_bb", type: "line" },
         ],
         styles: {
-            plot_bb_buy: { title: "BB Buy", histogramBase: 0 },
-            plot_bb_sell: { title: "BB Sell", histogramBase: 0 },
+            plot_bb: { title: "%B", histogramBase: 0 },
         },
         inputs: [
-            { id: "in_bb_len", name: "BB Length", defval: 20, type: "integer", min: 1, max: 100 },
+            { id: "in_bb_len", name: "Length", defval: 20, type: "integer", min: 1, max: 100 },
             { id: "in_bb_mult", name: "Multiplier", defval: 2, type: "float", min: 0.1, max: 10 },
         ],
     },
@@ -453,11 +473,10 @@ export const AI_BB_Indicator = {
                 const mult = this._input(1) || 2;
                 const close = this._context.new_var(this._context.symbol.close);
 
-                // Calculate SMA and StdDev
                 const prices = [];
                 for (let i = 0; i < len; i++) {
                     const c = close.get(i);
-                    if (isNaN(c)) return [NaN, NaN];
+                    if (isNaN(c)) return [NaN];
                     prices.push(c);
                 }
 
@@ -472,20 +491,16 @@ export const AI_BB_Indicator = {
                 const bandWidth = upperBand - lowerBand;
                 const percentB = bandWidth === 0 ? 0.5 : (currentClose - lowerBand) / bandWidth;
 
-                const isBuy = percentB < 0;  // Below lower band
-                const isSell = percentB > 1; // Above upper band
-
-                return [isBuy ? 10 : NaN, isSell ? 10 : NaN];
+                return [percentB];
             } catch (e) {
-                return [NaN, NaN];
+                return [NaN];
             }
         };
     }
 };
 
 // --- Williams %R Indicator ---
-// %R = (Highest High - Close) / (Highest High - Lowest Low) * -100
-// Overbought > -20, Oversold < -80
+// Shows %R value (-100 to 0 scale)
 export const AI_WilliamsR_Indicator = {
     name: "CustomAI_WilliamsR",
     metainfo: {
@@ -500,18 +515,19 @@ export const AI_WilliamsR_Indicator = {
         format: { type: "price", precision: 2 },
         defaults: {
             styles: {
-                plot_wr_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#00FF00", title: "%R Buy" },
-                plot_wr_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#FF0000", title: "%R Sell" },
+                plot_wr: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#7E57C2", title: "%R" },
             },
+            bands: [
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -20 },
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -80 },
+            ],
             inputs: { in_wr_len: 14 }
         },
         plots: [
-            { id: "plot_wr_buy", type: "line" },
-            { id: "plot_wr_sell", type: "line" },
+            { id: "plot_wr", type: "line" },
         ],
         styles: {
-            plot_wr_buy: { title: "%R Buy", histogramBase: 0 },
-            plot_wr_sell: { title: "%R Sell", histogramBase: 0 },
+            plot_wr: { title: "%R", histogramBase: 0 },
         },
         inputs: [
             { id: "in_wr_len", name: "%R Length", defval: 14, type: "integer", min: 1, max: 100 },
@@ -532,93 +548,27 @@ export const AI_WilliamsR_Indicator = {
                 for (let i = 0; i < len; i++) {
                     const h = high.get(i);
                     const l = low.get(i);
-                    if (isNaN(h) || isNaN(l)) return [NaN, NaN];
+                    if (isNaN(h) || isNaN(l)) return [NaN];
                     if (h > highestHigh) highestHigh = h;
                     if (l < lowestLow) lowestLow = l;
                 }
 
                 const c = close.get(0);
-                if (isNaN(c)) return [NaN, NaN];
+                if (isNaN(c)) return [NaN];
 
                 const range = highestHigh - lowestLow;
                 const williamsR = range === 0 ? -50 : ((highestHigh - c) / range) * -100;
 
-                const isBuy = williamsR < -80;  // Oversold
-                const isSell = williamsR > -20; // Overbought
-
-                return [isBuy ? 10 : NaN, isSell ? 10 : NaN];
+                return [williamsR];
             } catch (e) {
-                return [NaN, NaN];
-            }
-        };
-    }
-};
-
-// --- Momentum Indicator ---
-// MOM = Close - Close[n]
-// Buy when crossing above 0, Sell when crossing below 0
-export const AI_MOM_Indicator = {
-    name: "CustomAI_MOM",
-    metainfo: {
-        _metainfoVersion: 51,
-        id: "CustomAI_MOM@tv-basicstudies-1",
-        name: "CustomAI Momentum",
-        description: "CustomAI Momentum",
-        shortDescription: "AI MOM",
-        is_hidden_study: false,
-        is_price_study: false,
-        isCustomIndicator: true,
-        format: { type: "price", precision: 2 },
-        defaults: {
-            styles: {
-                plot_mom_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#00FF00", title: "MOM Buy" },
-                plot_mom_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#FF0000", title: "MOM Sell" },
-            },
-            inputs: { in_mom_len: 10 }
-        },
-        plots: [
-            { id: "plot_mom_buy", type: "line" },
-            { id: "plot_mom_sell", type: "line" },
-        ],
-        styles: {
-            plot_mom_buy: { title: "MOM Buy", histogramBase: 0 },
-            plot_mom_sell: { title: "MOM Sell", histogramBase: 0 },
-        },
-        inputs: [
-            { id: "in_mom_len", name: "Momentum Length", defval: 10, type: "integer", min: 1, max: 100 },
-        ],
-    },
-    constructor: function () {
-        this.main = function (context, inputCallback) {
-            this._context = context;
-            this._input = inputCallback;
-            try {
-                const len = this._input(0) || 10;
-                const close = this._context.new_var(this._context.symbol.close);
-
-                const currentClose = close.get(0);
-                const prevClose = close.get(len);
-
-                if (isNaN(currentClose) || isNaN(prevClose)) return [NaN, NaN];
-
-                const mom = currentClose - prevClose;
-                const prevMom = close.get(1) - close.get(len + 1);
-
-                // Crossover signals
-                const isBuy = mom > 0 && prevMom <= 0;  // Crossed above 0
-                const isSell = mom < 0 && prevMom >= 0; // Crossed below 0
-
-                return [isBuy ? 10 : NaN, isSell ? 10 : NaN];
-            } catch (e) {
-                return [NaN, NaN];
+                return [NaN];
             }
         };
     }
 };
 
 // --- MACD Indicator ---
-// MACD = EMA(12) - EMA(26), Signal = EMA(MACD, 9)
-// Buy when MACD crosses above Signal, Sell when MACD crosses below Signal
+// Shows MACD line, Signal line, and Histogram
 export const AI_MACD_Indicator = {
     name: "CustomAI_MACD",
     metainfo: {
@@ -633,23 +583,29 @@ export const AI_MACD_Indicator = {
         format: { type: "price", precision: 4 },
         defaults: {
             styles: {
-                plot_macd_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#00FF00", title: "MACD Buy" },
-                plot_macd_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, transparency: 0, visible: true, color: "#FF0000", title: "MACD Sell" },
+                plot_macd: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "MACD" },
+                plot_signal: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF6D00", title: "Signal" },
+                plot_histogram: { linestyle: 0, linewidth: 4, plottype: 1, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#26A69A", title: "Histogram" },
             },
+            bands: [
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 0 },
+            ],
             inputs: { in_fast: 12, in_slow: 26, in_signal: 9 }
         },
         plots: [
-            { id: "plot_macd_buy", type: "line" },
-            { id: "plot_macd_sell", type: "line" },
+            { id: "plot_macd", type: "line" },
+            { id: "plot_signal", type: "line" },
+            { id: "plot_histogram", type: "line" },
         ],
         styles: {
-            plot_macd_buy: { title: "MACD Buy", histogramBase: 0 },
-            plot_macd_sell: { title: "MACD Sell", histogramBase: 0 },
+            plot_macd: { title: "MACD", histogramBase: 0 },
+            plot_signal: { title: "Signal", histogramBase: 0 },
+            plot_histogram: { title: "Histogram", histogramBase: 0 },
         },
         inputs: [
             { id: "in_fast", name: "Fast Length", defval: 12, type: "integer", min: 1, max: 100 },
             { id: "in_slow", name: "Slow Length", defval: 26, type: "integer", min: 1, max: 100 },
-            { id: "in_signal", name: "Signal Length", defval: 9, type: "integer", min: 1, max: 100 },
+            { id: "in_signal", name: "Signal Smoothing", defval: 9, type: "integer", min: 1, max: 100 },
         ],
     },
     constructor: function () {
@@ -662,64 +618,46 @@ export const AI_MACD_Indicator = {
                 const signalLen = this._input(2) || 9;
                 const close = this._context.new_var(this._context.symbol.close);
 
-                // Need enough history for slow EMA + signal EMA
-                const historyNeeded = slowLen + signalLen + 50;
-                if (isNaN(close.get(historyNeeded))) return [NaN, NaN];
+                // Need enough history
+                const historyNeeded = slowLen + signalLen + 100;
+                if (isNaN(close.get(historyNeeded))) return [NaN, NaN, NaN];
 
-                // Calculate EMA helper
-                const calcEMA = (startIdx, length) => {
+                // Helper to calculate EMA
+                const calcEMA = (length, offset) => {
                     const mult = 2 / (length + 1);
                     // Seed with SMA
                     let sum = 0;
                     for (let i = 0; i < length; i++) {
-                        sum += close.get(startIdx + length - 1 - i);
+                        const val = close.get(offset + 100 + length - 1 - i);
+                        if (isNaN(val)) return NaN;
+                        sum += val;
                     }
                     let ema = sum / length;
-                    // EMA iteration
-                    for (let i = startIdx + length; i >= startIdx; i--) {
-                        ema = (close.get(i) - ema) * mult + ema;
+                    // EMA iteration forward to current
+                    for (let i = offset + 100 - 1; i >= offset; i--) {
+                        const val = close.get(i);
+                        if (isNaN(val)) continue;
+                        ema = (val - ema) * mult + ema;
                     }
                     return ema;
                 };
 
-                // Calculate current and previous MACD values for crossover detection
-                const iterations = signalLen + 2;
+                // Calculate MACD values for signal line
                 const macdValues = [];
-
-                for (let offset = 0; offset < iterations; offset++) {
-                    // Fast EMA
-                    let fastSum = 0;
-                    for (let i = 0; i < fastLen; i++) {
-                        fastSum += close.get(offset + i);
-                    }
-                    let fastEma = fastSum / fastLen;
-
-                    // Slow EMA
-                    let slowSum = 0;
-                    for (let i = 0; i < slowLen; i++) {
-                        slowSum += close.get(offset + i);
-                    }
-                    let slowEma = slowSum / slowLen;
-
+                for (let offset = 0; offset < signalLen; offset++) {
+                    const fastEma = calcEMA(fastLen, offset);
+                    const slowEma = calcEMA(slowLen, offset);
                     macdValues.push(fastEma - slowEma);
                 }
 
-                // Calculate Signal line (SMA of MACD for simplicity)
-                const signalCurrent = macdValues.slice(0, signalLen).reduce((a, b) => a + b, 0) / signalLen;
-                const signalPrev = macdValues.slice(1, signalLen + 1).reduce((a, b) => a + b, 0) / signalLen;
+                const macdLine = macdValues[0];
+                const signalLine = macdValues.reduce((a, b) => a + b, 0) / signalLen;
+                const histogram = macdLine - signalLine;
 
-                const macdCurrent = macdValues[0];
-                const macdPrev = macdValues[1];
-
-                // Crossover signals
-                const isBuy = macdCurrent > signalCurrent && macdPrev <= signalPrev;
-                const isSell = macdCurrent < signalCurrent && macdPrev >= signalPrev;
-
-                return [isBuy ? 10 : NaN, isSell ? 10 : NaN];
+                return [macdLine, signalLine, histogram];
             } catch (e) {
-                return [NaN, NaN];
+                return [NaN, NaN, NaN];
             }
         };
     }
 };
-

@@ -7,7 +7,6 @@ import {
   AI_CCI_Indicator,
   AI_BB_Indicator,
   AI_WilliamsR_Indicator,
-  AI_MOM_Indicator,
   AI_MACD_Indicator
 } from './AIIndicator';
 
@@ -372,7 +371,7 @@ function App() {
 
     // AI Special Case: Toggle all AI indicators
     if (name === "AI") {
-      const aiKeys = ["AI_RSI", "AI_MFI", "AI_Stoch", "AI_CCI", "AI_BB", "AI_WilliamsR", "AI_MOM", "AI_MACD"];
+      const aiKeys = ["AI_RSI", "AI_MFI", "AI_Stoch", "AI_CCI", "AI_BB", "AI_WilliamsR", "AI_MACD"];
       const hasAny = aiKeys.some(key => stateRef.current.studyIds.osc[key]);
 
       if (hasAny) {
@@ -389,11 +388,10 @@ function App() {
         const indicators = [
           { key: "AI_RSI", names: ["CustomAI RSI", "CustomAI_RSI@tv-basicstudies-1"], inputs: [14] },
           { key: "AI_MFI", names: ["CustomAI MFI", "CustomAI_MFI@tv-basicstudies-1"], inputs: [14] },
-          { key: "AI_Stoch", names: ["CustomAI Stochastic", "CustomAI_Stoch@tv-basicstudies-1"], inputs: [14, 3] },
-          { key: "AI_CCI", names: ["CustomAI CCI", "CustomAI_CCI@tv-basicstudies-1"], inputs: [20] },
+          { key: "AI_Stoch", names: ["CustomAI Stochastic", "CustomAI_Stoch@tv-basicstudies-1"], inputs: [14, 1, 3] },
+          { key: "AI_CCI", names: ["CustomAI CCI", "CustomAI_CCI@tv-basicstudies-1"], inputs: [20, 20] },
           { key: "AI_BB", names: ["CustomAI Bollinger %B", "CustomAI_BB@tv-basicstudies-1"], inputs: [20, 2] },
           { key: "AI_WilliamsR", names: ["CustomAI Williams %R", "CustomAI_WilliamsR@tv-basicstudies-1"], inputs: [14] },
-          { key: "AI_MOM", names: ["CustomAI Momentum", "CustomAI_MOM@tv-basicstudies-1"], inputs: [10] },
           { key: "AI_MACD", names: ["CustomAI MACD", "CustomAI_MACD@tv-basicstudies-1"], inputs: [12, 26, 9] },
         ];
 
@@ -550,7 +548,6 @@ function App() {
             AI_CCI_Indicator,
             AI_BB_Indicator,
             AI_WilliamsR_Indicator,
-            AI_MOM_Indicator,
             AI_MACD_Indicator
           ]);
         },
