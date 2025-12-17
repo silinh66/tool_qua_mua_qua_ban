@@ -247,10 +247,11 @@ export const AI_MFI_Indicator = {
                 }
 
                 // 5. Display logic: Green if < 20 (buy), Red if > 80 (sell)
+                // Return value 10 to keep the strip thin and uniform height
                 const isMfiBuy = mfiVal < 20;
                 const isMfiSell = mfiVal > 80;
 
-                return [isMfiBuy ? mfiVal : NaN, isMfiSell ? mfiVal : NaN];
+                return [isMfiBuy ? 10 : NaN, isMfiSell ? 10 : NaN];
 
             } catch (e) {
                 return [NaN, NaN];
@@ -391,22 +392,26 @@ export const AI_CCI_Indicator = {
             precision: 2,
         },
         defaults: {
+            min: -200,
+            max: 200,
             styles: {
-                plot_cci: { linestyle: 0, linewidth: 2, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "CCI" },
+                plot_cci_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#00FF00", title: "CCI Buy" },
+                plot_cci_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF0000", title: "CCI Sell" },
             },
             bands: [
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 100 },
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -100 },
+                { color: "#888888", linestyle: 2, linewidth: 1, visible: true, value: 0 },
             ],
             inputs: {
                 in_cci_len: 20,
             }
         },
         plots: [
-            { id: "plot_cci", type: "line" },
+            { id: "plot_cci_buy", type: "line" },
+            { id: "plot_cci_sell", type: "line" },
         ],
         styles: {
-            plot_cci: { title: "CCI", histogramBase: 0 },
+            plot_cci_buy: { title: "CCI Buy", histogramBase: 0 },
+            plot_cci_sell: { title: "CCI Sell", histogramBase: 0 },
         },
         inputs: [
             { id: "in_cci_len", name: "CCI Length", defval: 20, type: "integer", min: 1, max: 100 },
@@ -428,12 +433,6 @@ export const AI_CCI_Indicator = {
                 const low = this._context.new_var(this._context.symbol.low);
 
                 // 3. CCI Calculation - TradingView Standard Formula
-                // Pine Script equivalent:
-                // hlc3_src = (high + low + close) / 3
-                // sma = ta.sma(hlc3_src, length)
-                // dev = ta.dev(hlc3_src, length)
-                // cci = (hlc3_src - sma) / (0.015 * dev)
-
                 const tpArr = [];
                 let validBars = 0;
 
@@ -454,7 +453,7 @@ export const AI_CCI_Indicator = {
 
                 // Need enough valid bars
                 if (validBars < 2) {
-                    return [NaN];
+                    return [NaN, NaN];
                 }
 
                 // 4. Calculate CCI
@@ -467,10 +466,15 @@ export const AI_CCI_Indicator = {
                     cciVal = (currentTP - sma) / (0.015 * meanDev);
                 }
 
-                return [cciVal];
+                // 5. Display logic: Green if < -100 (buy), Red if > 100 (sell)
+                // Return value 10 to keep the strip thin and uniform height
+                const isCciBuy = cciVal < -100;
+                const isCciSell = cciVal > 100;
+
+                return [isCciBuy ? 10 : NaN, isCciSell ? 10 : NaN];
 
             } catch (e) {
-                return [NaN];
+                return [NaN, NaN];
             }
         };
     }
