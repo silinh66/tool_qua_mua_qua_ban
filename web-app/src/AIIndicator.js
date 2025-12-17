@@ -120,8 +120,8 @@ export const AI_RSI_Indicator = {
                     rsiVal = 100 - (100 / (1 + rs));
                 }
 
-                const isRsiBuy = rsiVal < 30;
-                const isRsiSell = rsiVal > 70;
+                const isRsiBuy = rsiVal < 25;
+                const isRsiSell = rsiVal > 75;
 
                 // Return value 10 to keep the strip thin at bottom (0-10 range of 0-100)
                 return [
@@ -248,8 +248,8 @@ export const AI_MFI_Indicator = {
 
                 // 5. Display logic: Green if < 20 (buy), Red if > 80 (sell)
                 // Return value 10 to keep the strip thin and uniform height
-                const isMfiBuy = mfiVal < 20;
-                const isMfiSell = mfiVal > 80;
+                const isMfiBuy = mfiVal < 15;
+                const isMfiSell = mfiVal > 85;
 
                 return [isMfiBuy ? 10 : NaN, isMfiSell ? 10 : NaN];
 
@@ -278,25 +278,26 @@ export const AI_Stoch_Indicator = {
             precision: 2,
         },
         defaults: {
+            min: 0,
+            max: 100,
             styles: {
-                plot_k: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "%K" },
-                plot_d: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF6D00", title: "%D" },
+                plot_stoch_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#00FF00", title: "Stoch Buy" },
+                plot_stoch_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF0000", title: "Stoch Sell" },
             },
             bands: [
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 20 },
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 80 },
+                { color: "#888888", linestyle: 2, linewidth: 1, visible: true, value: 5 },
             ],
             inputs: {
                 in_k_len: 14,
             }
         },
         plots: [
-            { id: "plot_k", type: "line" },
-            { id: "plot_d", type: "line" },
+            { id: "plot_stoch_buy", type: "line" },
+            { id: "plot_stoch_sell", type: "line" },
         ],
         styles: {
-            plot_k: { title: "%K", histogramBase: 0 },
-            plot_d: { title: "%D", histogramBase: 0 },
+            plot_stoch_buy: { title: "Stoch Buy", histogramBase: 0 },
+            plot_stoch_sell: { title: "Stoch Sell", histogramBase: 0 },
         },
         inputs: [
             { id: "in_k_len", name: "%K Length", defval: 14, type: "integer", min: 1, max: 100 },
@@ -366,7 +367,12 @@ export const AI_Stoch_Indicator = {
                     stochD = this.kHistory.reduce((a, b) => a + b, 0) / this.kHistory.length;
                 }
 
-                return [stochK, stochD];
+                // 6. Display logic: Green if both %K and %D < 20, Red if both > 80
+                // Return value 10 to keep the strip thin and uniform height
+                const isStochBuy = stochK < 15 && stochD < 15;
+                const isStochSell = stochK > 85 && stochD > 85;
+
+                return [isStochBuy ? 10 : NaN, isStochSell ? 10 : NaN];
 
             } catch (e) {
                 return [NaN, NaN];
@@ -468,8 +474,8 @@ export const AI_CCI_Indicator = {
 
                 // 5. Display logic: Green if < -100 (buy), Red if > 100 (sell)
                 // Return value 10 to keep the strip thin and uniform height
-                const isCciBuy = cciVal < -100;
-                const isCciSell = cciVal > 100;
+                const isCciBuy = cciVal < -200;
+                const isCciSell = cciVal > 200;
 
                 return [isCciBuy ? 10 : NaN, isCciSell ? 10 : NaN];
 

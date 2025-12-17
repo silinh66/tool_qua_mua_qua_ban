@@ -545,11 +545,11 @@ function App() {
           const indicators = [
             AI_RSI_Indicator,
             AI_MFI_Indicator,
-            AI_Stoch_Indicator,
+            // AI_Stoch_Indicator,
             AI_CCI_Indicator,
             AI_BB_Fixed_Indicator,
             AI_WilliamsR_Indicator,
-            AI_MACD_Indicator
+            // AI_MACD_Indicator
           ];
 
           console.log("[TV] Registering custom indicators:", indicators.map(i => ({ name: i.name, id: i.metainfo.id })));
