@@ -153,31 +153,26 @@ export const AI_MFI_Indicator = {
             precision: 2,
         },
         defaults: {
+            min: 0,
+            max: 100,
             styles: {
-                plot_mfi_line: {
-                    linestyle: 0,
-                    linewidth: 1,
-                    plottype: 0,
-                    trackPrice: false,
-                    transparency: 0,
-                    visible: true,
-                    color: "#7E57C2",
-                    title: "MFI"
-                },
+                plot_mfi_buy: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#00FF00", title: "MFI Buy" },
+                plot_mfi_sell: { linestyle: 0, linewidth: 6, plottype: 1, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF0000", title: "MFI Sell" },
             },
             bands: [
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 20 },
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 80 },
+                { color: "#888888", linestyle: 2, linewidth: 1, visible: true, value: 5 },
             ],
             inputs: {
                 in_mfi_len: 14,
             }
         },
         plots: [
-            { id: "plot_mfi_line", type: "line" },
+            { id: "plot_mfi_buy", type: "line" },
+            { id: "plot_mfi_sell", type: "line" },
         ],
         styles: {
-            plot_mfi_line: { title: "MFI", histogramBase: 0 },
+            plot_mfi_buy: { title: "MFI Buy", histogramBase: 0 },
+            plot_mfi_sell: { title: "MFI Sell", histogramBase: 0 },
         },
         inputs: [
             { id: "in_mfi_len", name: "MFI Length", defval: 14, type: "integer", min: 1, max: 100 },
@@ -200,12 +195,6 @@ export const AI_MFI_Indicator = {
                 const volume = this._context.new_var(this._context.symbol.volume);
 
                 // 3. MFI Calculation - TradingView Standard Formula
-                // Pine Script equivalent:
-                // src = hlc3
-                // upper = math.sum(volume * (change(src) <= 0 ? 0 : src), length)
-                // lower = math.sum(volume * (change(src) >= 0 ? 0 : src), length)
-                // mfi = 100 - 100 / (1 + upper / lower)
-
                 let upper = 0;
                 let lower = 0;
                 let validBars = 0;
@@ -243,7 +232,7 @@ export const AI_MFI_Indicator = {
 
                 // Need at least some valid bars
                 if (validBars < 2) {
-                    return [NaN];
+                    return [NaN, NaN];
                 }
 
                 // 4. Calculate MFI
@@ -257,10 +246,14 @@ export const AI_MFI_Indicator = {
                     mfiVal = 100 - (100 / (1 + mfr));
                 }
 
-                return [mfiVal];
+                // 5. Display logic: Green if < 20 (buy), Red if > 80 (sell)
+                const isMfiBuy = mfiVal < 20;
+                const isMfiSell = mfiVal > 80;
+
+                return [isMfiBuy ? mfiVal : NaN, isMfiSell ? mfiVal : NaN];
 
             } catch (e) {
-                return [NaN];
+                return [NaN, NaN];
             }
         };
     }
