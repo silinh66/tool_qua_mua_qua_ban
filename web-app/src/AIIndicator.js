@@ -267,19 +267,22 @@ export const AI_MFI_Indicator = {
 };
 
 // --- Stochastic Oscillator Indicator ---
-// %K and %D lines like original Stochastic
+// %K (blue) and %D (orange) lines like original Stochastic
 export const AI_Stoch_Indicator = {
     name: "CustomAI_Stoch",
     metainfo: {
         _metainfoVersion: 51,
         id: "CustomAI_Stoch@tv-basicstudies-1",
         name: "CustomAI Stochastic",
-        description: "CustomAI Stochastic Oscillator",
+        description: "CustomAI Stochastic",
         shortDescription: "AI Stoch",
         is_hidden_study: false,
         is_price_study: false,
         isCustomIndicator: true,
-        format: { type: "price", precision: 2 },
+        format: {
+            type: "price",
+            precision: 2,
+        },
         defaults: {
             styles: {
                 plot_k: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "%K" },
@@ -289,7 +292,9 @@ export const AI_Stoch_Indicator = {
                 { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 20 },
                 { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 80 },
             ],
-            inputs: { in_k_len: 14, in_k_smooth: 1, in_d_len: 3 }
+            inputs: {
+                in_k_len: 14,
+            }
         },
         plots: [
             { id: "plot_k", type: "line" },
@@ -301,50 +306,74 @@ export const AI_Stoch_Indicator = {
         },
         inputs: [
             { id: "in_k_len", name: "%K Length", defval: 14, type: "integer", min: 1, max: 100 },
-            { id: "in_k_smooth", name: "%K Smoothing", defval: 1, type: "integer", min: 1, max: 100 },
-            { id: "in_d_len", name: "%D Smoothing", defval: 3, type: "integer", min: 1, max: 100 },
         ],
     },
     constructor: function () {
+        // Store %K values for %D calculation
+        this.kHistory = [];
+
         this.main = function (context, inputCallback) {
             this._context = context;
             this._input = inputCallback;
+
             try {
-                const kLen = this._input(0) || 14;
-                const kSmooth = this._input(1) || 1;
-                const dLen = this._input(2) || 3;
+                // 1. Inputs
+                let rawInput = this._input(0);
+                const kLen = (Array.isArray(rawInput) ? rawInput[0] : parseInt(rawInput)) || 14;
+                const dLen = 3; // %D smoothing period
+
+                // 2. Data Access
                 const close = this._context.new_var(this._context.symbol.close);
                 const high = this._context.new_var(this._context.symbol.high);
                 const low = this._context.new_var(this._context.symbol.low);
 
-                // Calculate raw %K values for smoothing
-                const rawKValues = [];
-                for (let offset = 0; offset < kSmooth + dLen; offset++) {
-                    let highestHigh = -Infinity;
-                    let lowestLow = Infinity;
-                    for (let i = 0; i < kLen; i++) {
-                        const h = high.get(offset + i);
-                        const l = low.get(offset + i);
-                        if (isNaN(h) || isNaN(l)) return [NaN, NaN];
-                        if (h > highestHigh) highestHigh = h;
-                        if (l < lowestLow) lowestLow = l;
-                    }
-                    const c = close.get(offset);
-                    const range = highestHigh - lowestLow;
-                    rawKValues.push(range === 0 ? 50 : ((c - lowestLow) / range) * 100);
+                // 3. Calculate %K = 100 * (close - lowest(low)) / (highest(high) - lowest(low))
+                let highestHigh = -Infinity;
+                let lowestLow = Infinity;
+                let validBars = 0;
+
+                for (let i = 0; i < kLen; i++) {
+                    const h = high.get(i);
+                    const l = low.get(i);
+                    const c = close.get(i);
+
+                    if (isNaN(c)) continue;
+
+                    const hVal = isNaN(h) ? c : h;
+                    const lVal = isNaN(l) ? c : l;
+
+                    if (hVal > highestHigh) highestHigh = hVal;
+                    if (lVal < lowestLow) lowestLow = lVal;
+                    validBars++;
                 }
 
-                // %K = SMA of raw %K
-                const stochK = rawKValues.slice(0, kSmooth).reduce((a, b) => a + b, 0) / kSmooth;
-
-                // %D = SMA of %K values
-                const kValuesForD = [];
-                for (let i = 0; i < dLen; i++) {
-                    kValuesForD.push(rawKValues.slice(i, i + kSmooth).reduce((a, b) => a + b, 0) / kSmooth);
+                if (validBars < 2) {
+                    return [NaN, NaN];
                 }
-                const stochD = kValuesForD.reduce((a, b) => a + b, 0) / dLen;
+
+                const c = close.get(0);
+                if (isNaN(c)) return [NaN, NaN];
+
+                const range = highestHigh - lowestLow;
+                let stochK = 50;
+                if (range !== 0) {
+                    stochK = ((c - lowestLow) / range) * 100;
+                }
+
+                // 4. Store %K for %D calculation (SMA of %K)
+                this.kHistory.unshift(stochK);
+                if (this.kHistory.length > dLen) {
+                    this.kHistory.pop();
+                }
+
+                // 5. Calculate %D (SMA of %K over dLen periods)
+                let stochD = stochK;
+                if (this.kHistory.length >= dLen) {
+                    stochD = this.kHistory.reduce((a, b) => a + b, 0) / this.kHistory.length;
+                }
 
                 return [stochK, stochD];
+
             } catch (e) {
                 return [NaN, NaN];
             }
@@ -353,145 +382,100 @@ export const AI_Stoch_Indicator = {
 };
 
 // --- CCI - Commodity Channel Index ---
-// Shows CCI line and SMA of CCI
 export const AI_CCI_Indicator = {
-    name: "CustomAI_CCI",
+    name: "CustomAI_CCI2",
     metainfo: {
         _metainfoVersion: 51,
-        id: "CustomAI_CCI@tv-basicstudies-1",
-        name: "CustomAI CCI",
-        description: "CustomAI Commodity Channel Index",
-        shortDescription: "AI CCI",
+        id: "CustomAI_CCI2@tv-basicstudies-1",
+        name: "CustomAI CCI2",
+        description: "CustomAI CCI2",
+        shortDescription: "AI CCI2",
         is_hidden_study: false,
         is_price_study: false,
         isCustomIndicator: true,
-        format: { type: "price", precision: 2 },
+        format: {
+            type: "price",
+            precision: 2,
+        },
         defaults: {
             styles: {
-                plot_cci: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "CCI" },
-                plot_cci_sma: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF6D00", title: "SMA" },
+                plot_cci: { linestyle: 0, linewidth: 2, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "CCI" },
             },
             bands: [
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -100 },
                 { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 100 },
+                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -100 },
             ],
-            inputs: { in_cci_len: 20, in_sma_len: 20 }
+            inputs: {
+                in_cci_len: 20,
+            }
         },
         plots: [
             { id: "plot_cci", type: "line" },
-            { id: "plot_cci_sma", type: "line" },
         ],
         styles: {
             plot_cci: { title: "CCI", histogramBase: 0 },
-            plot_cci_sma: { title: "SMA", histogramBase: 0 },
         },
         inputs: [
             { id: "in_cci_len", name: "CCI Length", defval: 20, type: "integer", min: 1, max: 100 },
-            { id: "in_sma_len", name: "SMA Length", defval: 20, type: "integer", min: 1, max: 100 },
         ],
     },
     constructor: function () {
         this.main = function (context, inputCallback) {
             this._context = context;
             this._input = inputCallback;
+
             try {
-                const len = this._input(0) || 20;
-                const smaLen = this._input(1) || 20;
+                // 1. Inputs - same pattern as MFI
+                let rawInput = this._input(0);
+                const len = (Array.isArray(rawInput) ? rawInput[0] : parseInt(rawInput)) || 20;
+
+                // 2. Data Access
                 const close = this._context.new_var(this._context.symbol.close);
                 const high = this._context.new_var(this._context.symbol.high);
                 const low = this._context.new_var(this._context.symbol.low);
 
-                // Calculate CCI values for SMA
-                const cciValues = [];
-                for (let offset = 0; offset < smaLen; offset++) {
-                    const tpArr = [];
-                    for (let i = 0; i < len; i++) {
-                        const h = high.get(offset + i);
-                        const l = low.get(offset + i);
-                        const c = close.get(offset + i);
-                        if (isNaN(h) || isNaN(l) || isNaN(c)) return [NaN, NaN];
-                        tpArr.push((h + l + c) / 3);
-                    }
-                    const tpSMA = tpArr.reduce((a, b) => a + b, 0) / len;
-                    const meanDev = tpArr.reduce((acc, tp) => acc + Math.abs(tp - tpSMA), 0) / len;
-                    const cci = meanDev === 0 ? 0 : (tpArr[0] - tpSMA) / (0.015 * meanDev);
-                    cciValues.push(cci);
-                }
+                // 3. CCI Calculation - TradingView Standard Formula
+                // Pine Script equivalent:
+                // hlc3_src = (high + low + close) / 3
+                // sma = ta.sma(hlc3_src, length)
+                // dev = ta.dev(hlc3_src, length)
+                // cci = (hlc3_src - sma) / (0.015 * dev)
 
-                const currentCCI = cciValues[0];
-                const cciSMA = cciValues.reduce((a, b) => a + b, 0) / smaLen;
+                const tpArr = [];
+                let validBars = 0;
 
-                return [currentCCI, cciSMA];
-            } catch (e) {
-                return [NaN, NaN];
-            }
-        };
-    }
-};
-
-// --- Bollinger Bands %B Indicator ---
-// Shows %B value (0 = lower band, 1 = upper band)
-export const AI_BB_Indicator = {
-    name: "CustomAI_BB",
-    metainfo: {
-        _metainfoVersion: 51,
-        id: "CustomAI_BB@tv-basicstudies-1",
-        name: "CustomAI Bollinger %B",
-        description: "CustomAI Bollinger Bands %B",
-        shortDescription: "AI %B",
-        is_hidden_study: false,
-        is_price_study: false,
-        isCustomIndicator: true,
-        format: { type: "price", precision: 4 },
-        defaults: {
-            styles: {
-                plot_bb: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#7E57C2", title: "%B" },
-            },
-            bands: [
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 0 },
-                { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: 1 },
-            ],
-            inputs: { in_bb_len: 20, in_bb_mult: 2 }
-        },
-        plots: [
-            { id: "plot_bb", type: "line" },
-        ],
-        styles: {
-            plot_bb: { title: "%B", histogramBase: 0 },
-        },
-        inputs: [
-            { id: "in_bb_len", name: "Length", defval: 20, type: "integer", min: 1, max: 100 },
-            { id: "in_bb_mult", name: "Multiplier", defval: 2, type: "float", min: 0.1, max: 10 },
-        ],
-    },
-    constructor: function () {
-        this.main = function (context, inputCallback) {
-            this._context = context;
-            this._input = inputCallback;
-            try {
-                const len = this._input(0) || 20;
-                const mult = this._input(1) || 2;
-                const close = this._context.new_var(this._context.symbol.close);
-
-                const prices = [];
                 for (let i = 0; i < len; i++) {
+                    const h = high.get(i);
+                    const l = low.get(i);
                     const c = close.get(i);
-                    if (isNaN(c)) return [NaN];
-                    prices.push(c);
+
+                    // Skip if any data is invalid
+                    if (isNaN(c)) continue;
+
+                    const hVal = isNaN(h) ? c : h;
+                    const lVal = isNaN(l) ? c : l;
+                    const tp = (hVal + lVal + c) / 3;
+                    tpArr.push(tp);
+                    validBars++;
                 }
 
-                const sma = prices.reduce((a, b) => a + b, 0) / len;
-                const variance = prices.reduce((acc, p) => acc + Math.pow(p - sma, 2), 0) / len;
-                const stdDev = Math.sqrt(variance);
+                // Need enough valid bars
+                if (validBars < 2) {
+                    return [NaN];
+                }
 
-                const upperBand = sma + mult * stdDev;
-                const lowerBand = sma - mult * stdDev;
-                const currentClose = close.get(0);
+                // 4. Calculate CCI
+                const currentTP = tpArr[0];
+                const sma = tpArr.reduce((a, b) => a + b, 0) / tpArr.length;
+                const meanDev = tpArr.reduce((acc, tp) => acc + Math.abs(tp - sma), 0) / tpArr.length;
 
-                const bandWidth = upperBand - lowerBand;
-                const percentB = bandWidth === 0 ? 0.5 : (currentClose - lowerBand) / bandWidth;
+                let cciVal = 0;
+                if (meanDev !== 0) {
+                    cciVal = (currentTP - sma) / (0.015 * meanDev);
+                }
 
-                return [percentB];
+                return [cciVal];
+
             } catch (e) {
                 return [NaN];
             }
@@ -499,29 +483,125 @@ export const AI_BB_Indicator = {
     }
 };
 
+// --- Bollinger Bands Indicator ---
+// Shows Upper, Lower bands and Basis (SMA) in separate panel
+// --- Bollinger Bands Indicator (Fixed) ---
+export const AI_BB_Fixed_Indicator = {
+    name: "CustomAIBB3",
+    metainfo: {
+        _metainfoVersion: 51,
+        id: "CustomAIBB3",
+        name: "CustomAIBB3",
+        description: "CustomAIBB3",
+        shortDescription: "AI BB3",
+        is_hidden_study: false,
+        is_price_study: false, // Separate panel
+        isCustomIndicator: true,
+        format: {
+            type: "price",
+            precision: 2,
+        },
+        defaults: {
+            styles: {
+                plot_upper: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "Upper" },
+                plot_lower: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#2196F3", title: "Lower" },
+                plot_basis: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#FF6D00", title: "Basis" },
+            },
+            inputs: {
+                in_bb_len: 20,
+                in_bb_mult: 2
+            }
+        },
+        plots: [
+            { id: "plot_upper", type: "line" },
+            { id: "plot_lower", type: "line" },
+            { id: "plot_basis", type: "line" },
+        ],
+        styles: {
+            plot_upper: { title: "Upper", histogramBase: 0 },
+            plot_lower: { title: "Lower", histogramBase: 0 },
+            plot_basis: { title: "Basis", histogramBase: 0 },
+        },
+        inputs: [
+            { id: "in_bb_len", name: "Length", defval: 20, type: "integer", min: 1, max: 100 },
+            { id: "in_bb_mult", name: "Mult", defval: 2, type: "float", min: 0.1, max: 10 },
+        ],
+    },
+    constructor: function () {
+        this.main = function (context, inputCallback) {
+            this._context = context;
+            this._input = inputCallback;
+
+            try {
+                // 1. Inputs
+                let rawInputLen = this._input(0);
+                let rawInputMult = this._input(1);
+
+                const len = (Array.isArray(rawInputLen) ? rawInputLen[0] : parseInt(rawInputLen)) || 20;
+                const mult = (Array.isArray(rawInputMult) ? rawInputMult[0] : parseFloat(rawInputMult)) || 2;
+
+                // 2. Data Access
+                const close = this._context.new_var(this._context.symbol.close);
+
+                // 3. BB Calculation
+                let validBars = 0;
+                const arr = [];
+
+                for (let i = 0; i < len; i++) {
+                    const c = close.get(i);
+                    if (isNaN(c)) continue;
+                    arr.push(c);
+                    validBars++;
+                }
+
+                if (validBars < 2) {
+                    return [NaN, NaN, NaN];
+                }
+
+                const basis = arr.reduce((a, b) => a + b, 0) / arr.length;
+                const dev = Math.sqrt(arr.reduce((acc, val) => acc + Math.pow(val - basis, 2), 0) / arr.length);
+
+                const upper = basis + (mult * dev);
+                const lower = basis - (mult * dev);
+
+                return [upper, lower, basis];
+
+            } catch (e) {
+                return [NaN, NaN, NaN];
+            }
+        };
+    }
+};
+
 // --- Williams %R Indicator ---
-// Shows %R value (-100 to 0 scale)
 export const AI_WilliamsR_Indicator = {
     name: "CustomAI_WilliamsR",
     metainfo: {
         _metainfoVersion: 51,
         id: "CustomAI_WilliamsR@tv-basicstudies-1",
-        name: "CustomAI Williams %R",
-        description: "CustomAI Williams Percent R",
-        shortDescription: "AI %R",
+        name: "CustomAI WilliamsR",
+        description: "CustomAI Williams %R",
+        shortDescription: "AI WR",
         is_hidden_study: false,
         is_price_study: false,
         isCustomIndicator: true,
-        format: { type: "price", precision: 2 },
+        format: {
+            type: "price",
+            precision: 2,
+        },
         defaults: {
+            min: -100,
+            max: 0,
             styles: {
-                plot_wr: { linestyle: 0, linewidth: 1, plottype: 0, trackPrice: false, transparency: 0, visible: true, color: "#7E57C2", title: "%R" },
+                plot_wr: { linestyle: 0, linewidth: 2, plottype: 0, histogramBase: 0, trackPrice: false, transparency: 0, visible: true, color: "#7E57C2", title: "%R" },
             },
             bands: [
                 { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -20 },
                 { color: "#787B86", linestyle: 2, linewidth: 1, visible: true, value: -80 },
             ],
-            inputs: { in_wr_len: 14 }
+            inputs: {
+                in_wr_len: 14,
+            }
         },
         plots: [
             { id: "plot_wr", type: "line" },
@@ -530,36 +610,56 @@ export const AI_WilliamsR_Indicator = {
             plot_wr: { title: "%R", histogramBase: 0 },
         },
         inputs: [
-            { id: "in_wr_len", name: "%R Length", defval: 14, type: "integer", min: 1, max: 100 },
+            { id: "in_wr_len", name: "Length", defval: 14, type: "integer", min: 1, max: 500 },
         ],
     },
     constructor: function () {
         this.main = function (context, inputCallback) {
             this._context = context;
             this._input = inputCallback;
+
             try {
-                const len = this._input(0) || 14;
+                const wrLen = this._input(0) || 14;
                 const close = this._context.new_var(this._context.symbol.close);
                 const high = this._context.new_var(this._context.symbol.high);
                 const low = this._context.new_var(this._context.symbol.low);
 
+                // Data validation
+                if (isNaN(close.get(0)) || isNaN(high.get(0)) || isNaN(low.get(0))) {
+                    return [NaN];
+                }
+
+                // Find highest high and lowest low over the period
                 let highestHigh = -Infinity;
                 let lowestLow = Infinity;
-                for (let i = 0; i < len; i++) {
+
+                for (let i = 0; i < wrLen; i++) {
                     const h = high.get(i);
                     const l = low.get(i);
-                    if (isNaN(h) || isNaN(l)) return [NaN];
+
+                    if (isNaN(h) || isNaN(l)) {
+                        return [NaN];
+                    }
+
                     if (h > highestHigh) highestHigh = h;
                     if (l < lowestLow) lowestLow = l;
                 }
 
-                const c = close.get(0);
-                if (isNaN(c)) return [NaN];
+                const currentClose = close.get(0);
 
+                // Calculate Williams %R
+                // Formula: ((Highest High - Close) / (Highest High - Lowest Low)) * -100
                 const range = highestHigh - lowestLow;
-                const williamsR = range === 0 ? -50 : ((highestHigh - c) / range) * -100;
+
+                let williamsR;
+                if (range === 0) {
+                    williamsR = -50; // Neutral value when no range
+                } else {
+                    williamsR = ((highestHigh - currentClose) / range) * -100;
+                }
 
                 return [williamsR];
+
             } catch (e) {
                 return [NaN];
             }

@@ -5,7 +5,7 @@ import {
   AI_MFI_Indicator,
   AI_Stoch_Indicator,
   AI_CCI_Indicator,
-  AI_BB_Indicator,
+  AI_BB_Fixed_Indicator,
   AI_WilliamsR_Indicator,
   AI_MACD_Indicator
 } from './AIIndicator';
@@ -371,7 +371,7 @@ function App() {
 
     // AI Special Case: Toggle all AI indicators
     if (name === "AI") {
-      const aiKeys = ["AI_RSI", "AI_MFI", "AI_Stoch", "AI_CCI", "AI_BB", "AI_WilliamsR", "AI_MACD"];
+      const aiKeys = ["AI_RSI", "AI_MFI", "AI_Stoch", "AI_CCI", "AI_BB", "AI_MACD"];
       const hasAny = aiKeys.some(key => stateRef.current.studyIds.osc[key]);
 
       if (hasAny) {
@@ -386,20 +386,21 @@ function App() {
         // Add all AI indicators
         console.log("[TV] Creating all AI indicators...");
         const indicators = [
-          { key: "AI_RSI", names: ["CustomAI RSI", "CustomAI_RSI@tv-basicstudies-1"], inputs: [14] },
-          { key: "AI_MFI", names: ["CustomAI MFI", "CustomAI_MFI@tv-basicstudies-1"], inputs: [14] },
-          { key: "AI_Stoch", names: ["CustomAI Stochastic", "CustomAI_Stoch@tv-basicstudies-1"], inputs: [14, 1, 3] },
-          { key: "AI_CCI", names: ["CustomAI CCI", "CustomAI_CCI@tv-basicstudies-1"], inputs: [20, 20] },
-          { key: "AI_BB", names: ["CustomAI Bollinger %B", "CustomAI_BB@tv-basicstudies-1"], inputs: [20, 2] },
-          { key: "AI_WilliamsR", names: ["CustomAI Williams %R", "CustomAI_WilliamsR@tv-basicstudies-1"], inputs: [14] },
-          { key: "AI_MACD", names: ["CustomAI MACD", "CustomAI_MACD@tv-basicstudies-1"], inputs: [12, 26, 9] },
+          { key: "AI_RSI", names: ["CustomAI RSI", "CustomAI_RSI@tv-basicstudies-1"], inputs: { in_rsi_len: 14 } },
+          { key: "AI_MFI", names: ["CustomAI MFI", "CustomAI_MFI@tv-basicstudies-1"], inputs: { in_mfi_len: 14 } },
+          { key: "AI_Stoch", names: ["CustomAI Stochastic", "CustomAI_Stoch@tv-basicstudies-1"], inputs: { in_k_len: 14 } },
+          { key: "AI_CCI", names: ["CustomAI CCI2", "CustomAI_CCI2@tv-basicstudies-1"], inputs: { in_cci_len: 20 } },
+          // { key: "AI_BB", names: ["CustomAIBB3"], inputs: { in_bb_len: 20, in_bb_mult: 2 } },
+          // { key: "AI_WilliamsR", names: ["CustomAI WilliamsR", "CustomAI_WilliamsR@tv-basicstudies-1"], inputs: { in_wr_len: 14 } },
+          { key: "AI_MACD", names: ["CustomAI MACD", "CustomAI_MACD@tv-basicstudies-1"], inputs: { in_fast: 12, in_slow: 26, in_signal: 9 } },
         ];
 
         let anyCreated = false;
         for (const ind of indicators) {
-          const id = await tryCreateStudy(chart, ind.names, false, ind.inputs);
+          const id = await tryCreateStudy(chart, ind.names, false, [ind.inputs]);
           stateRef.current.studyIds.osc[ind.key] = id;
           if (id) anyCreated = true;
+          console.log(`[TV] ${ind.key} created:`, !!id);
         }
 
         if (anyCreated) {
@@ -540,16 +541,26 @@ function App() {
         custom_indicators_getter: function (PineJS) {
           console.log("[TV] custom_indicators_getter called.");
           if (PineJS) window.PineJS = PineJS;
-          // Return all AI indicators
-          return Promise.resolve([
+
+          const indicators = [
             AI_RSI_Indicator,
             AI_MFI_Indicator,
             AI_Stoch_Indicator,
             AI_CCI_Indicator,
-            AI_BB_Indicator,
+            AI_BB_Fixed_Indicator,
             AI_WilliamsR_Indicator,
             AI_MACD_Indicator
-          ]);
+          ];
+
+          console.log("[TV] Registering custom indicators:", indicators.map(i => ({ name: i.name, id: i.metainfo.id })));
+
+          console.log("[TV] Returning indicators:", indicators.map(ind => ({
+            name: ind.name,
+            metainfo_name: ind.metainfo?.name,
+            metainfo_id: ind.metainfo?.id
+          })));
+
+          return Promise.resolve(indicators);
         },
       };
 
